@@ -11,21 +11,10 @@
 
 import sys
 import time
-try:
-    # For python2
-    from itertools import izip as zip
-    LARGE_NUMBER = sys.maxint
-except ImportError:
-    # For python3
-    LARGE_NUMBER = sys.maxsize
-
 import numpy as np
+from sklearn.base import BaseEstimator, RegressorMixin
 
-
-class Dataset(object):
-    def __init__(self, X, y):
-        self.X = X
-        self.y = y
+LARGE_NUMBER = sys.maxsize
 
 
 class TreeNode(object):
@@ -55,13 +44,13 @@ class TreeNode(object):
 
     def build(self, instances, grad, hessian, shrinkage_rate, depth, param):
         """
-        Exact Greedy Alogirithm for Split Finidng
+        Exact Greedy Algorithm for Split Finding
         (Refer to Algorithm1 of Reference[1])
         """
         assert instances.shape[0] == len(grad) == len(hessian)
         if depth > param['max_depth']:
             self.is_leaf = True
-            self.weight = self._calc_leaf_weight(grad, hessian, param['lambda']) * shrinkage_rate
+            self.weight = self._calc_leaf_weight(grad, hessian, param['lambd']) * shrinkage_rate
             return
         G = np.sum(grad)
         H = np.sum(hessian)
@@ -72,22 +61,22 @@ class TreeNode(object):
         best_right_instance_ids = None
         for feature_id in range(instances.shape[1]):
             G_l, H_l = 0., 0.
-            sorted_instance_ids = instances[:,feature_id].argsort()
+            sorted_instance_ids = instances[:, feature_id].argsort()
             for j in range(sorted_instance_ids.shape[0]):
                 G_l += grad[sorted_instance_ids[j]]
                 H_l += hessian[sorted_instance_ids[j]]
                 G_r = G - G_l
                 H_r = H - H_l
-                current_gain = self._calc_split_gain(G, H, G_l, H_l, G_r, H_r, param['lambda'])
+                current_gain = self._calc_split_gain(G, H, G_l, H_l, G_r, H_r, param['lambd'])
                 if current_gain > best_gain:
                     best_gain = current_gain
                     best_feature_id = feature_id
                     best_val = instances[sorted_instance_ids[j]][feature_id]
-                    best_left_instance_ids = sorted_instance_ids[:j+1]
-                    best_right_instance_ids = sorted_instance_ids[j+1:]
+                    best_left_instance_ids = sorted_instance_ids[:j + 1]
+                    best_right_instance_ids = sorted_instance_ids[j + 1:]
         if best_gain < param['min_split_gain']:
             self.is_leaf = True
-            self.weight = self._calc_leaf_weight(grad, hessian, param['lambda']) * shrinkage_rate
+            self.weight = self._calc_leaf_weight(grad, hessian, param['lambd']) * shrinkage_rate
         else:
             self.split_feature_id = best_feature_id
             self.split_val = best_val
@@ -97,14 +86,14 @@ class TreeNode(object):
                                   grad[best_left_instance_ids],
                                   hessian[best_left_instance_ids],
                                   shrinkage_rate,
-                                  depth+1, param)
+                                  depth + 1, param)
 
             self.right_child = TreeNode()
             self.right_child.build(instances[best_right_instance_ids],
                                    grad[best_right_instance_ids],
                                    hessian[best_right_instance_ids],
                                    shrinkage_rate,
-                                   depth+1, param)
+                                   depth + 1, param)
 
     def predict(self, x):
         if self.is_leaf:
@@ -117,7 +106,7 @@ class TreeNode(object):
 
 
 class Tree(object):
-    ''' Classification and regression tree for tree ensemble '''
+    '''Classification and regression tree for tree ensemble.'''
     def __init__(self):
         self.root = None
 
@@ -131,55 +120,53 @@ class Tree(object):
         return self.root.predict(x)
 
 
-class GBT(object):
-    def __init__(self):
-        self.params = {'gamma': 0.,
-                       'lambda': 1.,
-                       'min_split_gain': 0.1,
-                       'max_depth': 5,
-                       'learning_rate': 0.3,
-                       }
+class GBT(BaseEstimator, RegressorMixin):
+    def __init__(self, gamma=0., lambd=1, min_split_gain=0.1, max_depth=5,
+                 learning_rate=0.3, n_estimators=10):
+        self.gamma = gamma
+        self.lambd = lambd
+        self.min_split_gain = min_split_gain
+        self.max_depth = max_depth
+        self.learning_rate = learning_rate
+        self.n_estimators = n_estimators
         self.best_iteration = None
 
-    def _calc_training_data_scores(self, train_set, models):
+    def _calc_training_data_scores(self, X, models):
         if len(models) == 0:
             return None
-        X = train_set.X
         scores = np.zeros(len(X))
         for i in range(len(X)):
-            scores[i] = self.predict(X[i], models=models)
+            scores[i] = self._predict_one(X[i], models=models)
         return scores
 
-    def _calc_l2_gradient(self, train_set, scores):
-        labels = train_set.y
-        hessian = np.full(len(labels), 2)
+    def _calc_l2_gradient(self, X, y, scores):
+        hessian = np.full(len(y), 2)
         if scores is None:
-            grad = np.random.uniform(size=len(labels))
+            grad = np.random.uniform(size=len(y))
         else:
-            grad = np.array([2 * (labels[i] - scores[i]) for i in range(len(labels))])
+            grad = np.array([2 * (y[i] - scores[i]) for i in range(len(y))])
         return grad, hessian
 
-    def _calc_gradient(self, train_set, scores):
+    def _calc_gradient(self, X, y, scores):
         """For now, only L2 loss is supported"""
-        return self._calc_l2_gradient(train_set, scores)
+        return self._calc_l2_gradient(X, y, scores)
 
-    def _calc_l2_loss(self, models, data_set):
+    def _calc_l2_loss(self, models, X, y):
         errors = []
-        for x, y in zip(data_set.X, data_set.y):
-            errors.append(y - self.predict(x, models))
+        for this_x, this_y in zip(X, y):
+            errors.append(this_y - self._predict_one(this_x, models))
         return np.mean(np.square(errors))
 
-    def _calc_loss(self, models, data_set):
+    def _calc_loss(self, models, X, y):
         """For now, only L2 loss is supported"""
-        return self._calc_l2_loss(models, data_set)
+        return self._calc_l2_loss(models, X, y)
 
-    def _build_learner(self, train_set, grad, hessian, shrinkage_rate):
+    def _build_learner(self, X, grad, hessian, shrinkage_rate):
         learner = Tree()
-        learner.build(train_set.X, grad, hessian, shrinkage_rate, self.params)
+        learner.build(X, grad, hessian, shrinkage_rate, self.get_params())
         return learner
 
-    def train(self, params, train_set, num_boost_round=20, valid_set=None, early_stopping_rounds=5):
-        self.params.update(params)
+    def fit(self, X, y, valid_set=None, early_stopping_rounds=5):
         models = []
         shrinkage_rate = 1.
         best_iteration = None
@@ -188,16 +175,16 @@ class GBT(object):
 
         print("Training until validation scores don't improve for {} rounds."
               .format(early_stopping_rounds))
-        for iter_cnt in range(num_boost_round):
+        for iter_cnt in range(self.n_estimators):
             iter_start_time = time.time()
-            scores = self._calc_training_data_scores(train_set, models)
-            grad, hessian = self._calc_gradient(train_set, scores)
-            learner = self._build_learner(train_set, grad, hessian, shrinkage_rate)
+            scores = self._calc_training_data_scores(X, models)
+            grad, hessian = self._calc_gradient(X, y, scores)
+            learner = self._build_learner(X, grad, hessian, shrinkage_rate)
             if iter_cnt > 0:
-                shrinkage_rate *= self.params['learning_rate']
+                shrinkage_rate *= self.learning_rate
             models.append(learner)
-            train_loss = self._calc_loss(models, train_set)
-            val_loss = self._calc_loss(models, valid_set) if valid_set else None
+            train_loss = self._calc_loss(models, X, y)
+            val_loss = self._calc_loss(models, *valid_set) if valid_set else None
             val_loss_str = '{:.10f}'.format(val_loss) if val_loss else '-'
             print("Iter {:>3}, Train's L2: {:.10f}, Valid's L2: {}, Elapsed: {:.2f} secs"
                   .format(iter_cnt, train_loss, val_loss_str, time.time() - iter_start_time))
@@ -209,12 +196,33 @@ class GBT(object):
                 print("Iter {:>3}, Train's L2: {:.10f}".format(best_iteration, best_val_loss))
                 break
 
-        self.models = models
+        self.models_ = models
         self.best_iteration = best_iteration
         print("Training finished. Elapsed: {:.2f} secs".format(time.time() - train_start_time))
 
-    def predict(self, x, models=None, num_iteration=None):
-        if models is None:
-            models = self.models
-        assert models is not None
-        return np.sum(m.predict(x) for m in models[:num_iteration])
+    def _predict_one(self, x, models):
+        return np.sum(m.predict(x) for m in models)
+
+    def predict(self, X):
+        y_pred = []
+        for x in X_test:
+            y_pred.append(self._predict_one(x, self.models_))
+        return y_pred
+
+
+if __name__ == '__main__':
+    from sklearn.metrics import mean_squared_error
+    from sklearn.datasets import load_boston
+    from sklearn.model_selection import train_test_split
+
+    X, y = load_boston(return_X_y=True)
+    X_train, X_test, y_train, y_test = \
+        train_test_split(X, y, test_size=0.2, random_state=42)
+
+    print('Start training...')
+    gbt = GBT(n_estimators=20)
+    gbt.fit(X_train, y_train, valid_set=(X_test, y_test), early_stopping_rounds=5)
+
+    print('Start predicting...')
+    y_pred = gbt.predict(X_test)
+    print('The rmse of prediction is:', mean_squared_error(y_test, y_pred) ** 0.5)
