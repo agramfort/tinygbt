@@ -4,6 +4,8 @@ TinyGBT(Tiny Gradient Boosted Trees) is a 200 line gradient boosted trees implem
 
 Since this code is not for production, it is not optimized for speed and memory usage.
 
+Scikit-Learn design refactoring was completed by Alex Gramfort
+
 ### Experiment
 
 - Data: [LightGBM's regression example data](https://github.com/Microsoft/LightGBM/tree/master/examples/regression)
@@ -13,7 +15,7 @@ Since this code is not for production, it is not optimized for speed and memory 
 | --- | --- | --- |
 | RMSE of TestSet | 0.45652 | 0.45934 |
 
-#### Reproduce experiment
+#### Reproduce (original) experiment
 
 - TinyGBT
 

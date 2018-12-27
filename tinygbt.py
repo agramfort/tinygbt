@@ -129,7 +129,6 @@ class GBT(BaseEstimator, RegressorMixin):
         self.max_depth = max_depth
         self.learning_rate = learning_rate
         self.n_estimators = n_estimators
-        self.best_iteration = None
 
     def _calc_training_data_scores(self, X, models):
         if len(models) == 0:
@@ -197,7 +196,7 @@ class GBT(BaseEstimator, RegressorMixin):
                 break
 
         self.models_ = models
-        self.best_iteration = best_iteration
+        self.best_iteration_ = best_iteration
         print("Training finished. Elapsed: {:.2f} secs".format(time.time() - train_start_time))
 
     def _predict_one(self, x, models):
@@ -206,7 +205,7 @@ class GBT(BaseEstimator, RegressorMixin):
     def predict(self, X):
         y_pred = []
         for x in X_test:
-            y_pred.append(self._predict_one(x, self.models_))
+            y_pred.append(self._predict_one(x, self.models_[:self.best_iteration_]))
         return y_pred
 
 
