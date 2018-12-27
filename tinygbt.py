@@ -204,7 +204,7 @@ class GBT(BaseEstimator, RegressorMixin):
 
     def predict(self, X):
         y_pred = []
-        for x in X_test:
+        for x in X:
             y_pred.append(self._predict_one(x, self.models_[:self.best_iteration_]))
         return y_pred
 
